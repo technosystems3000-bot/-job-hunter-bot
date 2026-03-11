@@ -27,11 +27,8 @@ AGREEMENT_TEXT = (
     "By using this bot, you agree to the following terms:\n\n"
     "1. The bot is free to use for job searching, resume generation, and application tracking.\n\n"
     "2. This bot is completely free to use for everyone. If you find this bot helpful and it assists you in finding a job, or if you simply wish to show your appreciation, you can support the creators through donations to PayPal: papers333@gmail.com\n\n"
-
-    "3. Your personal data is used solely for the purpose of helping you find employment and will "
-    "not be shared with third parties.\n\n"
-
-    "By clicking the button below, you confirm that you have read, understood, and agree to these terms."\n\n"
+    "3. Your personal data is used solely for the purpose of helping you find employment and will not be shared with third parties.\n\n"
+    "By clicking the button below, you confirm that you have read, understood, and agree to these terms."
 )
 
 ACCEPT_BUTTON_TEXT = "✅ I Accept the Agreement"
