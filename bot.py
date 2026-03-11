@@ -8,6 +8,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from config import BOT_TOKEN
 from database import db
 from handlers import start, profile, menu, jobs, resume, applications, follow_up, help, settings, referral, admin
+from services.job_search import job_search_service
 
 
 async def main():
@@ -22,6 +23,9 @@ async def main():
 
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
+
+    # Pass bot instance to job_search_service for admin notifications
+    job_search_service.set_bot(bot)
 
     # Register routers in order of priority
     dp.include_router(admin.router)  # Admin first (restricted access)

@@ -76,6 +76,23 @@ class Database:
                 )
             ''')
             await conn.execute('''
+                CREATE TABLE IF NOT EXISTS job_search_cache (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    query_hash TEXT NOT NULL,
+                    results_json TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS api_usage (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    api_name TEXT NOT NULL,
+                    request_count INTEGER DEFAULT 0,
+                    last_reset_date TEXT,
+                    last_notified_at TEXT
+                )
+            ''')
+            await conn.execute('''
                 CREATE TABLE IF NOT EXISTS follow_ups (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     application_id INTEGER NOT NULL,
@@ -308,6 +325,93 @@ class Database:
             )
             await conn.commit()
             return daily_count, weekly_count
+
+    # ── Cache methods ──
+
+    async def get_cached_search(self, query_hash, max_age_hours=120):
+        """Get cached search results if not older than max_age_hours (default 5 days = 120h)."""
+        async with aiosqlite.connect(self.database_name) as conn:
+            conn.row_factory = aiosqlite.Row
+            cutoff = (datetime.now() - timedelta(hours=max_age_hours)).isoformat()
+            cursor = await conn.execute(
+                "SELECT results_json FROM job_search_cache WHERE query_hash = ? AND created_at > ? ORDER BY created_at DESC LIMIT 1",
+                (query_hash, cutoff)
+            )
+            row = await cursor.fetchone()
+            return row["results_json"] if row else None
+
+    async def save_search_cache(self, query_hash, results_json):
+        """Save search results to cache."""
+        async with aiosqlite.connect(self.database_name) as conn:
+            # Remove old cache for same query
+            await conn.execute("DELETE FROM job_search_cache WHERE query_hash = ?", (query_hash,))
+            await conn.execute(
+                "INSERT INTO job_search_cache (query_hash, results_json, created_at) VALUES (?, ?, ?)",
+                (query_hash, results_json, datetime.now().isoformat())
+            )
+            await conn.commit()
+
+    async def cleanup_old_cache(self, max_age_hours=120):
+        """Remove cache entries older than max_age_hours."""
+        async with aiosqlite.connect(self.database_name) as conn:
+            cutoff = (datetime.now() - timedelta(hours=max_age_hours)).isoformat()
+            await conn.execute("DELETE FROM job_search_cache WHERE created_at < ?", (cutoff,))
+            await conn.commit()
+
+    # ── API Usage tracking ──
+
+    async def get_api_usage(self, api_name):
+        """Get current API usage count."""
+        async with aiosqlite.connect(self.database_name) as conn:
+            conn.row_factory = aiosqlite.Row
+            cursor = await conn.execute(
+                "SELECT * FROM api_usage WHERE api_name = ?", (api_name,)
+            )
+            row = await cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
+
+    async def increment_api_usage(self, api_name):
+        """Increment API usage counter. Creates record if not exists."""
+        async with aiosqlite.connect(self.database_name) as conn:
+            existing = await self.get_api_usage(api_name)
+            now = datetime.now()
+            if existing:
+                # Reset monthly counter if new month
+                last_reset = existing.get("last_reset_date", "")
+                if last_reset:
+                    last_reset_dt = datetime.fromisoformat(last_reset)
+                    if now.month != last_reset_dt.month or now.year != last_reset_dt.year:
+                        await conn.execute(
+                            "UPDATE api_usage SET request_count = 1, last_reset_date = ? WHERE api_name = ?",
+                            (now.isoformat(), api_name)
+                        )
+                        await conn.commit()
+                        return 1
+                new_count = existing["request_count"] + 1
+                await conn.execute(
+                    "UPDATE api_usage SET request_count = ? WHERE api_name = ?",
+                    (new_count, api_name)
+                )
+                await conn.commit()
+                return new_count
+            else:
+                await conn.execute(
+                    "INSERT INTO api_usage (api_name, request_count, last_reset_date) VALUES (?, 1, ?)",
+                    (api_name, now.isoformat())
+                )
+                await conn.commit()
+                return 1
+
+    async def update_api_notified(self, api_name):
+        """Mark that admin was notified about API limit."""
+        async with aiosqlite.connect(self.database_name) as conn:
+            await conn.execute(
+                "UPDATE api_usage SET last_notified_at = ? WHERE api_name = ?",
+                (datetime.now().isoformat(), api_name)
+            )
+            await conn.commit()
 
     # ── Admin methods ──
 
